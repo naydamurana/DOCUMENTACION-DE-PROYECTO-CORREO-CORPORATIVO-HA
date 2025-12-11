@@ -109,3 +109,52 @@ Arquitectura Maestro–Esclavo (Activo–Pasivo) con **Keepalived (VRRP)** gesti
 - Usuarios con sudo.  
 - Certificados TLS (snakeoil para pruebas; Let's Encrypt en producción).  
 - Paquetes base: `curl`, `net-tools`, `nfs-common`/`nfs-kernel-server`, `keepalived`, `postfix`, `dovecot`, `roundcube`, `apache2` o `iRedMail` instalador.
+- ## 🧪 Pruebas y Validación
+
+### Tabla de Validaciones del Sistema
+
+| **Prueba Realizada** | **Resultado Esperado** | **Resultado Obtenido** |
+|----------------------|------------------------|-------------------------|
+| **Test de Conmutación (Failover HA)** | Al detener Postfix, Apache o Keepalived en la VM Maestro, la IP Virtual (VIP) debe migrar automáticamente a la VM Esclavo. | ✅ La VIP migró en menos de 5 segundos y el acceso a SMTP, IMAP y Webmail permaneció disponible sin interrupciones. |
+| **Test de Integridad de Datos** | Tras el failover, los buzones deben seguir siendo accesibles gracias al almacenamiento centralizado en NFS. | ✅ Los buzones creados antes del failover fueron accesibles desde el nodo Esclavo, confirmando la correcta operación del NFS compartido. |
+| **Prueba de Seguridad (Anti-Virus)** | Enviar el archivo de prueba EICAR debe activar ClamAV y bloquear el mensaje. | ✅ El correo fue bloqueado por Amavisd/ClamAV y registrado en `/var/log/mail.log` como amenaza detectada. |
+| **Validación de Autenticación de Correo** | Los correos enviados deben pasar validaciones SPF y DKIM (si se implementó). | ✅ El correo superó la verificación SPF y fue aceptado por proveedores externos, demostrando configuración correcta del DNS. |
+
+
+---
+
+## 🧩 Capa de Aplicación (MTA/MDA)
+
+| **Componente** | **Rol en Maestro y Esclavo** | **Redundancia / Sincronización** |
+|----------------|------------------------------|----------------------------------|
+| **MTA (Postfix)** | Gestiona envío y recepción de correos SMTP. | Ambos nodos corren la misma configuración. La redundancia se garantiza con la IP Virtual (VIP) administrada por VRRP. |
+| **MDA (Dovecot)** | Proporciona acceso IMAP/POP3 a los buzones. | Ambos nodos leen Maildir desde NFS, permitiendo sincronía total durante el failover. |
+| **Anti-Spam / Anti-Virus** | Escaneo de correos usando Amavisd, ClamAV y SpamAssassin. | Instalados en ambos nodos para asegurar protección idéntica durante failover. |
+| **Webmail / Administración** | Roundcube (iRedMail) permite gestión del correo vía interfaz web. | Disponible en ambos nodos. El servicio pasa al Esclavo durante failover sin afectar a los usuarios. |
+
+
+---
+
+## 🗂️ Capa de Datos (Cuentas, Buzones y Configuración)
+
+| **Componente** | **Función y Desafío HA** | **Tecnología Implementada** |
+|----------------|---------------------------|------------------------------|
+| **Buzones / Maildir** | Deben ser accesibles desde Maestro y Esclavo sin pérdida de datos. | NFS en servidor Debian, compartido a ambos nodos de correo. |
+| **Base de Datos de Cuentas** | Almacena usuarios, contraseñas, dominios y configuraciones internas. | MariaDB / PostgreSQL instalado en el Maestro. La tolerancia se logra mediante backups periódicos (no se implementó replicación). |
+| **Archivos de Configuración** | Incluyen Postfix, Dovecot, Amavisd, certificados TLS y Roundcube. | Sincronización manual o copia controlada; ambos nodos poseen configuraciones paralelas. |
+
+
+---
+
+## 🏁 Conclusiones y Lecciones Aprendidas
+
+La implementación demostró que la Alta Disponibilidad no depende únicamente del software, sino de una **arquitectura en capas** que integra red, aplicación y almacenamiento para garantizar continuidad operativa.
+
+Los resultados muestran que es posible construir un sistema de correo corporativo robusto utilizando únicamente **tecnologías de código abierto**, logrando:
+
+- Eliminación del punto único de falla mediante VIP y VRRP.  
+- Sincronización total de buzones mediante almacenamiento centralizado en NFS.  
+- Protección avanzada del correo mediante Amavisd, ClamAV y SpamAssassin.  
+- Operación ininterrumpida del servicio incluso durante fallas simuladas del servidor Maestro.
+
+La principal lección aprendida es que la Alta Disponibilidad requiere **planificación, redundancia y monitoreo adecuado**, especialmente en los scripts de health-check de Keepalived. Estos scripts determinan la rapidez y precisión del failover, por lo que su correcta configuración es esencial para una infraestructura confiable.
